@@ -1,0 +1,58 @@
+﻿raw_theme,theme_slug,theme_label,macro_theme_slug,macro_theme_label,enabled,default_cadence_days,priority
+Actualités (généraliste),actualites-generaliste,Actualités (généraliste),actualites-and-medias,Actualités & Médias,1,7,normal
+Animaux,animaux,Animaux,nature-animaux-ecologie,Nature / Animaux / Écologie,1,7,normal
+Assurance,assurance,Assurance,finance-assurance-credit,Finance / Assurance / Crédit,1,7,normal
+Auto & Moto,auto-and-moto,Auto & Moto,auto-transport,Auto / Transport,1,7,normal
+Banque,banque,Banque,finance-assurance-credit,Finance / Assurance / Crédit,1,7,normal
+Beauté,beaute,Beauté,sante-bien-etre-beaute,Santé / Bien-être / Beauté,1,7,normal
+Bien-Être,bien-etre,Bien-Être,sante-bien-etre-beaute,Santé / Bien-être / Beauté,1,7,normal
+Bio,bio,Bio,nature-animaux-ecologie,Nature / Animaux / Écologie,1,7,normal
+Bricolage,bricolage,Bricolage,travaux-and-btp,Travaux & BTP,1,7,normal
+Bébé,bebe,Bébé,famille,Famille,1,7,normal
+Cadeaux,cadeaux,Cadeaux,mode-shopping-e-commerce,Mode / Shopping / E-commerce,1,7,normal
+Cinéma,cinema,Cinéma,actualites-and-medias,Actualités & Médias,1,7,normal
+Crédits,credits,Crédits,finance-assurance-credit,Finance / Assurance / Crédit,1,7,normal
+Décoration,decoration,Décoration,maison-deco-jardin,Maison / Déco / Jardin,1,7,normal
+E-commerce,e-commerce,E-commerce,mode-shopping-e-commerce,Mode / Shopping / E-commerce,1,7,normal
+Enseignement & Formation,enseignement-and-formation,Enseignement & Formation,entreprise-and-formation,Entreprise & Formation,1,7,normal
+Entreprise,entreprise,Entreprise,entreprise-and-formation,Entreprise & Formation,1,7,normal
+Environnement,environnement,Environnement,nature-animaux-ecologie,Nature / Animaux / Écologie,1,7,normal
+Finance,finance,Finance,finance-assurance-credit,Finance / Assurance / Crédit,1,7,normal
+Finance & Assurance,finance-and-assurance,Finance & Assurance,finance-assurance-credit,Finance / Assurance / Crédit,1,7,normal
+Gastronomie,gastronomie,Gastronomie,gastronomie,Gastronomie,1,7,normal
+High-Tech,high-tech,High-Tech,high-tech-informatique-web,High-Tech / Informatique / Web,1,7,normal
+Immobilier,immobilier,Immobilier,immobilier,Immobilier,1,7,normal
+Inclassable,inclassable,Inclassable,inclassable,Inclassable,1,7,normal
+Informatique,informatique,Informatique,high-tech-informatique-web,High-Tech / Informatique / Web,1,7,normal
+Jardin,jardin,Jardin,maison-deco-jardin,Maison / Déco / Jardin,1,7,normal
+Jeux,jeux,Jeux,sport-loisirs-jeux,Sport / Loisirs / Jeux,1,7,normal
+Jeux d'argent,jeux-d-argent,Jeux d'argent,sport-loisirs-jeux,Sport / Loisirs / Jeux,1,7,normal
+Littérature,litterature,Littérature,actualites-and-medias,Actualités & Médias,1,7,normal
+Maison,maison,Maison,maison-deco-jardin,Maison / Déco / Jardin,1,7,normal
+Maman,maman,Maman,famille,Famille,1,7,normal
+Mariage,mariage,Mariage,famille,Famille,1,7,normal
+Mode,mode,Mode,mode-shopping-e-commerce,Mode / Shopping / E-commerce,1,7,normal
+Musique,musique,Musique,actualites-and-medias,Actualités & Médias,1,7,normal
+Nature,nature,Nature,nature-animaux-ecologie,Nature / Animaux / Écologie,1,7,normal
+Photographie,photographie,Photographie,actualites-and-medias,Actualités & Médias,1,7,normal
+Plan cul,plan-cul,Plan cul,relations-adulte-esoterisme,Relations / Adulte / Ésotérisme,1,7,normal
+Plombier,plombier,Plombier,travaux-and-btp,Travaux & BTP,1,7,normal
+Rencontre,rencontre,Rencontre,relations-adulte-esoterisme,Relations / Adulte / Ésotérisme,1,7,normal
+Santé,sante,Santé,sante-bien-etre-beaute,Santé / Bien-être / Beauté,1,7,normal
+Serrurier,serrurier,Serrurier,travaux-and-btp,Travaux & BTP,1,7,normal
+Société,societe,Société,actualites-and-medias,Actualités & Médias,1,7,normal
+Sport,sport,Sport,sport-loisirs-jeux,Sport / Loisirs / Jeux,1,7,normal
+Sport & Loisirs,sport-and-loisirs,Sport & Loisirs,sport-loisirs-jeux,Sport / Loisirs / Jeux,1,7,normal
+Sénior,senior,Sénior,sante-bien-etre-beaute,Santé / Bien-être / Beauté,1,7,normal
+"Tchat, Dial & Webcam",tchat-dial-and-webcam,"Tchat, Dial & Webcam",relations-adulte-esoterisme,Relations / Adulte / Ésotérisme,1,7,normal
+Transport & Véhicules,transport-and-vehicules,Transport & Véhicules,auto-transport,Auto / Transport,1,7,normal
+Travaux et Batiment,travaux-et-batiment,Travaux et Batiment,travaux-and-btp,Travaux & BTP,1,7,normal
+Téléphone & Smartphone,telephone-and-smartphone,Téléphone & Smartphone,high-tech-informatique-web,High-Tech / Informatique / Web,1,7,normal
+Villes & Villages,villes-and-villages,Villes & Villages,voyage-local,Voyage / Local,1,7,normal
+Vitrier,vitrier,Vitrier,travaux-and-btp,Travaux & BTP,1,7,normal
+Voyage & Tourisme,voyage-and-tourisme,Voyage & Tourisme,voyage-local,Voyage / Local,1,7,normal
+Voyance,voyance,Voyance,relations-adulte-esoterisme,Relations / Adulte / Ésotérisme,1,7,normal
+Webmasters,webmasters,Webmasters,high-tech-informatique-web,High-Tech / Informatique / Web,1,7,normal
+X (Adulte uniquement),x-adulte-uniquement,X (Adulte uniquement),relations-adulte-esoterisme,Relations / Adulte / Ésotérisme,1,7,normal
+Écologie,ecologie,Écologie,nature-animaux-ecologie,Nature / Animaux / Écologie,1,7,normal
+Événement,evenement,Événement,actualites-and-medias,Actualités & Médias,1,7,normal

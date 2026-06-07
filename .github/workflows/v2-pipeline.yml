@@ -1,0 +1,71 @@
+name: V2 Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_sites_override:
+        description: "Nombre max de sites a traiter pour ce run"
+        required: false
+        default: "250"
+      sitemap_workers:
+        description: "Workers sitemap"
+        required: false
+        default: "16"
+      page_workers:
+        description: "Workers pages"
+        required: false
+        default: "16"
+      seed_initial_urls:
+        description: "Crawler les URLs existantes au premier passage (0 ou 1)"
+        required: false
+        default: "0"
+  schedule:
+    - cron: "24 6 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Crawl sitemap incrementally
+        env:
+          MAX_SITES_OVERRIDE: ${{ inputs.max_sites_override || vars.MAX_SITES_OVERRIDE || '250' }}
+          SITEMAP_WORKERS: ${{ inputs.sitemap_workers || vars.SITEMAP_WORKERS || '16' }}
+          PAGE_WORKERS: ${{ inputs.page_workers || vars.PAGE_WORKERS || '16' }}
+          SEED_INITIAL_URLS: ${{ inputs.seed_initial_urls || vars.SEED_INITIAL_URLS || '0' }}
+          SITEMAP_TIMEOUT: ${{ vars.SITEMAP_TIMEOUT || '20' }}
+          SITEMAP_CONNECT_TIMEOUT: ${{ vars.SITEMAP_CONNECT_TIMEOUT || '8' }}
+          PAGE_TIMEOUT: ${{ vars.PAGE_TIMEOUT || '20' }}
+          HTTP_RETRIES: ${{ vars.HTTP_RETRIES || '2' }}
+          MAX_NEW_URLS_PER_SITE: ${{ vars.MAX_NEW_URLS_PER_SITE || '100' }}
+          MAX_SITEMAP_DOCUMENTS: ${{ vars.MAX_SITEMAP_DOCUMENTS || '120' }}
+          PROGRESS_EVERY: ${{ vars.PROGRESS_EVERY || '25' }}
+        run: python -u scripts/crawl_v2.py
+
+      - name: Build dashboard data
+        run: python scripts/run_pipeline.py
+
+      - name: Commit generated public data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add catalog data/state data/events public/data
+          git diff --cached --quiet && exit 0
+          git commit -m "Update V2 public data"
+          git push

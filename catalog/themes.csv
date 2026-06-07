@@ -1,0 +1,58 @@
+﻿theme_slug,theme_label,enabled,default_cadence_days,priority
+actualites-generaliste,Actualités (généraliste),1,7,normal
+animaux,Animaux,1,7,normal
+assurance,Assurance,1,7,normal
+auto-and-moto,Auto & Moto,1,7,normal
+banque,Banque,1,7,normal
+beaute,Beauté,1,7,normal
+bien-etre,Bien-Être,1,7,normal
+bio,Bio,1,7,normal
+bricolage,Bricolage,1,7,normal
+bebe,Bébé,1,7,normal
+cadeaux,Cadeaux,1,7,normal
+cinema,Cinéma,1,7,normal
+credits,Crédits,1,7,normal
+decoration,Décoration,1,7,normal
+e-commerce,E-commerce,1,7,normal
+enseignement-and-formation,Enseignement & Formation,1,7,normal
+entreprise,Entreprise,1,7,normal
+environnement,Environnement,1,7,normal
+finance,Finance,1,7,normal
+finance-and-assurance,Finance & Assurance,1,7,normal
+gastronomie,Gastronomie,1,7,normal
+high-tech,High-Tech,1,7,normal
+immobilier,Immobilier,1,7,normal
+inclassable,Inclassable,1,7,normal
+informatique,Informatique,1,7,normal
+jardin,Jardin,1,7,normal
+jeux,Jeux,1,7,normal
+jeux-d-argent,Jeux d'argent,1,7,normal
+litterature,Littérature,1,7,normal
+maison,Maison,1,7,normal
+maman,Maman,1,7,normal
+mariage,Mariage,1,7,normal
+mode,Mode,1,7,normal
+musique,Musique,1,7,normal
+nature,Nature,1,7,normal
+photographie,Photographie,1,7,normal
+plan-cul,Plan cul,1,7,normal
+plombier,Plombier,1,7,normal
+rencontre,Rencontre,1,7,normal
+sante,Santé,1,7,normal
+serrurier,Serrurier,1,7,normal
+societe,Société,1,7,normal
+sport,Sport,1,7,normal
+sport-and-loisirs,Sport & Loisirs,1,7,normal
+senior,Sénior,1,7,normal
+tchat-dial-and-webcam,"Tchat, Dial & Webcam",1,7,normal
+transport-and-vehicules,Transport & Véhicules,1,7,normal
+travaux-et-batiment,Travaux et Batiment,1,7,normal
+telephone-and-smartphone,Téléphone & Smartphone,1,7,normal
+villes-and-villages,Villes & Villages,1,7,normal
+vitrier,Vitrier,1,7,normal
+voyage-and-tourisme,Voyage & Tourisme,1,7,normal
+voyance,Voyance,1,7,normal
+webmasters,Webmasters,1,7,normal
+x-adulte-uniquement,X (Adulte uniquement),1,7,normal
+ecologie,Écologie,1,7,normal
+evenement,Événement,1,7,normal

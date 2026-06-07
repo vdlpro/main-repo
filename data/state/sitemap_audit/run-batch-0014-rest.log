@@ -1,0 +1,24 @@
+[INFO] Audit batch 0014-rest: sites 26001-39230/39230 with 64 workers
+[INFO] Audit pass-1: 755/13230 site(s) à traiter, 64 worker(s), timeout 20s
+[INFO] Audit pass-1: 50/755
+[INFO] Audit pass-1: 100/755
+[INFO] Audit pass-1: 150/755
+[INFO] Audit pass-1: 200/755
+[INFO] Audit pass-1: 250/755
+[INFO] Audit pass-1: 300/755
+[INFO] Audit pass-1: 350/755
+[INFO] Audit pass-1: 400/755
+[INFO] Audit pass-1: 450/755
+[INFO] Audit pass-1: 500/755
+[INFO] Audit pass-1: 550/755
+[INFO] Audit pass-1: 600/755
+[INFO] Audit pass-1: 650/755
+[INFO] Audit pass-1: 700/755
+[INFO] Audit pass-1: 750/755
+[INFO] Audit pass-1: 755/755
+[INFO] Audit pass-2: 193/193 site(s) à traiter, 24 worker(s), timeout 40s
+[INFO] Audit pass-2: 50/193
+[INFO] Audit pass-2: 100/193
+[INFO] Audit pass-2: 150/193
+[INFO] Audit pass-2: 193/193
+[INFO] Audit batch 0014-rest done: ok=9530, exclude_candidate=2892, retry_later=808, sitemaps_updated=9530

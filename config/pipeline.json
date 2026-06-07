@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "default_cadence_days": 7,
+  "default_priority": "normal",
+  "crawler": {
+    "max_workers": 12,
+    "timeout_seconds": 25,
+    "max_sites_per_run": 500,
+    "max_initial_urls_per_site": 3,
+    "max_new_urls_per_site": 100
+  },
+  "publication": {
+    "emit_global_dataset": true,
+    "emit_macro_datasets": true
+  }
+}

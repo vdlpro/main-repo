@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+data/aggregates/latest/*.json
+data/events/links/*.jsonl.gz
+data/events/pages/*.jsonl.gz
+data/state/**/*.json
+
+!data/aggregates/latest/.gitkeep
+!data/events/links/.gitkeep
+!data/events/pages/.gitkeep
+!data/state/.gitkeep
+!public/data/.gitkeep
