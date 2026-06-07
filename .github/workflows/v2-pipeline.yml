@@ -2,27 +2,6 @@ name: V2 Pipeline
 
 on:
   workflow_dispatch:
-    inputs:
-      max_sites_override:
-        description: "Nombre max de sites a traiter pour ce run"
-        required: false
-        default: "0"
-      sitemap_workers:
-        description: "Workers sitemap"
-        required: false
-        default: "16"
-      page_workers:
-        description: "Workers pages"
-        required: false
-        default: "16"
-      seed_initial_urls:
-        description: "Crawler les URLs existantes au premier passage (0 ou 1)"
-        required: false
-        default: "0"
-      continuation:
-        description: "Relance automatique interne (0 ou 1)"
-        required: false
-        default: "0"
   schedule:
     - cron: "24 6 * * *"
 
@@ -39,11 +18,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 330
     env:
-      MAX_SITES_OVERRIDE: ${{ inputs.max_sites_override || vars.MAX_SITES_OVERRIDE || '0' }}
-      SITEMAP_WORKERS: ${{ inputs.sitemap_workers || vars.SITEMAP_WORKERS || '16' }}
-      PAGE_WORKERS: ${{ inputs.page_workers || vars.PAGE_WORKERS || '16' }}
-      SEED_INITIAL_URLS: ${{ inputs.seed_initial_urls || vars.SEED_INITIAL_URLS || '0' }}
-      CONTINUATION: ${{ inputs.continuation || '0' }}
+      MAX_SITES_OVERRIDE: "0"
+      SITEMAP_WORKERS: ${{ vars.SITEMAP_WORKERS || '24' }}
+      PAGE_WORKERS: ${{ vars.PAGE_WORKERS || '32' }}
+      SEED_INITIAL_URLS: "0"
+      MAX_RUNS_PER_DAY: ${{ vars.MAX_RUNS_PER_DAY || '3' }}
       SITEMAP_TIMEOUT: ${{ vars.SITEMAP_TIMEOUT || '20' }}
       SITEMAP_CONNECT_TIMEOUT: ${{ vars.SITEMAP_CONNECT_TIMEOUT || '8' }}
       PAGE_TIMEOUT: ${{ vars.PAGE_TIMEOUT || '20' }}
@@ -85,15 +64,19 @@ jobs:
           state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.exists() else {}
           done = bool(state.get("done"))
           needs = bool(state.get("needs_continuation"))
+          can_dispatch = bool(state.get("can_dispatch_continuation"))
           phase = str(state.get("phase", ""))
           processed = int(state.get("sitemap_processed", 0) or 0)
           total = int(state.get("total_sites", 0) or 0)
+          runs_today = int(state.get("runs_started_today", 0) or 0)
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
               fh.write(f"done={'true' if done else 'false'}\n")
               fh.write(f"needs_continuation={'true' if needs else 'false'}\n")
+              fh.write(f"can_dispatch_continuation={'true' if can_dispatch else 'false'}\n")
               fh.write(f"phase={phase}\n")
               fh.write(f"processed={processed}\n")
               fh.write(f"total={total}\n")
+              fh.write(f"runs_today={runs_today}\n")
           PY
 
       - name: Commit generated public data
@@ -106,7 +89,7 @@ jobs:
           git push
 
       - name: Dispatch continuation
-        if: steps.crawl_status.outputs.done != 'true' && steps.crawl_status.outputs.needs_continuation == 'true'
+        if: steps.crawl_status.outputs.done != 'true' && steps.crawl_status.outputs.needs_continuation == 'true' && steps.crawl_status.outputs.can_dispatch_continuation == 'true'
         run: |
           curl -L \
             -X POST \
@@ -114,4 +97,4 @@ jobs:
             -H "Authorization: Bearer ${{ github.token }}" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             https://api.github.com/repos/${{ github.repository }}/actions/workflows/v2-pipeline.yml/dispatches \
-            -d "{\"ref\":\"${{ github.ref_name }}\",\"inputs\":{\"max_sites_override\":\"${MAX_SITES_OVERRIDE}\",\"sitemap_workers\":\"${SITEMAP_WORKERS}\",\"page_workers\":\"${PAGE_WORKERS}\",\"seed_initial_urls\":\"${SEED_INITIAL_URLS}\",\"continuation\":\"1\"}}"
+            -d "{\"ref\":\"${{ github.ref_name }}\"}"

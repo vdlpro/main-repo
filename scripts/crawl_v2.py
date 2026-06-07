@@ -36,6 +36,7 @@ RUN_BUDGET_SECONDS = int(os.getenv("RUN_BUDGET_SECONDS", "18000"))
 RUN_STOP_BUFFER_SECONDS = int(os.getenv("RUN_STOP_BUFFER_SECONDS", "300"))
 SITEMAP_SLICE_SIZE = int(os.getenv("SITEMAP_SLICE_SIZE", "0"))
 PAGE_SLICE_SIZE = int(os.getenv("PAGE_SLICE_SIZE", "0"))
+MAX_RUNS_PER_DAY = int(os.getenv("MAX_RUNS_PER_DAY", "3"))
 TRACKED_LINK_CONTAINERS = "p a[href], li a[href], ol a[href]"
 IGNORED_SCHEMES = {"mailto", "tel", "javascript", "data"}
 IGNORED_TARGET_DOMAINS = {"mag-du-web.fr", "t.co", "x.com"}
@@ -466,9 +467,17 @@ def page_queue_path(base_dir: Path, run_token: str) -> Path:
     return runtime_state_dir(base_dir) / f"page_queue_{run_token}.jsonl"
 
 
+def site_queue_path(base_dir: Path, run_token: str) -> Path:
+    return runtime_state_dir(base_dir) / f"site_queue_{run_token}.json"
+
+
 def load_url_set(path: Path) -> set[str]:
     payload = load_json(path, {})
     return set(payload.get("urls", []))
+
+
+def current_day_iso() -> str:
+    return date.today().isoformat()
 
 
 def save_url_set(path: Path, urls: Iterable[str], sitemap_url: str) -> None:
@@ -874,16 +883,59 @@ def crawler_decision_for_reason(reason: str) -> str:
     return "retry_later"
 
 
-def ordered_active_sites(sites: list[SiteRecord], limit: int) -> list[SiteRecord]:
-    active = [site for site in sites if site.status == "active"]
-    active.sort(key=lambda site: (site_priority_rank(site.priority), site.registered_domain, site.site_id))
-    return active[:limit] if limit > 0 else active
+def last_scan_day_for_site(base_dir: Path, site_id: str) -> str:
+    state = load_json(site_state_path(base_dir, site_id), {})
+    return str(state.get("last_scan_day", "") or "").strip()
 
 
-def default_crawl_state(run_token: str, total_sites: int, site_limit: int) -> dict[str, object]:
+def build_daily_site_queue(
+    base_dir: Path,
+    sites: list[SiteRecord],
+    scan_day: str,
+    limit: int,
+) -> list[str]:
+    ranked: list[tuple[str, int, str, str]] = []
+    for site in sites:
+        if site.status != "active":
+            continue
+        last_scan_day = last_scan_day_for_site(base_dir, site.site_id)
+        if last_scan_day == scan_day:
+            continue
+        ranked.append(
+            (
+                last_scan_day or "0000-00-00",
+                site_priority_rank(site.priority),
+                site.registered_domain,
+                site.site_id,
+            )
+        )
+    ranked.sort()
+    queue_ids = [site_id for _, _, _, site_id in ranked]
+    return queue_ids[:limit] if limit > 0 else queue_ids
+
+
+def load_site_queue(path: Path) -> list[str]:
+    payload = load_json(path, {})
+    site_ids = payload.get("site_ids", [])
+    return [str(site_id).strip() for site_id in site_ids if str(site_id).strip()]
+
+
+def save_site_queue(path: Path, site_ids: list[str], scan_day: str, site_limit: int) -> None:
+    write_json(
+        path,
+        {
+            "scan_day": scan_day,
+            "site_limit": site_limit,
+            "site_ids": site_ids,
+        },
+    )
+
+
+def default_crawl_state(run_token: str, scan_day: str, total_sites: int, site_limit: int) -> dict[str, object]:
     return {
         "version": 1,
         "run_token": run_token,
+        "scan_day": scan_day,
         "phase": "sitemaps",
         "site_cursor": 0,
         "page_cursor": 0,
@@ -894,6 +946,9 @@ def default_crawl_state(run_token: str, total_sites: int, site_limit: int) -> di
         "sitemap_processed": 0,
         "pages_processed": 0,
         "rejections_written": 0,
+        "runs_started_today": 0,
+        "last_run_day": "",
+        "can_dispatch_continuation": False,
         "needs_continuation": False,
         "done": False,
         "started_at": now_iso(),
@@ -931,6 +986,14 @@ def load_page_queue(path: Path) -> list[dict[str, str]]:
     return rows
 
 
+def current_run_count(loaded_state: dict[str, object], current_day: str) -> int:
+    if not loaded_state:
+        return 1
+    if str(loaded_state.get("last_run_day", "") or "") == current_day:
+        return state_int(loaded_state.get("runs_started_today"), 0) + 1
+    return 1
+
+
 def scan_site(site: SiteRecord) -> tuple[SiteRecord, str, set[str], bool, str, list[str]]:
     session = session_with_headers()
     try:
@@ -946,6 +1009,7 @@ def scan_site(site: SiteRecord) -> tuple[SiteRecord, str, set[str], bool, str, l
 def process_sitemap_slice(
     base_dir: Path,
     run_token: str,
+    event_day: str,
     slice_sites: list[SiteRecord],
     site_rows_path: Path,
     max_initial_urls_per_site: int,
@@ -1000,6 +1064,7 @@ def process_sitemap_slice(
                         "site": site.site,
                         "sitemap_url": sitemap_url,
                         "last_scan_at": now_iso(),
+                        "last_scan_day": event_day,
                         "last_success_at": now_iso(),
                         "crawl_complete": True,
                         "urls_count": len(current_urls),
@@ -1011,6 +1076,7 @@ def process_sitemap_slice(
                 consecutive_failures += 1
                 rejection = {
                     "detected_on": run_token,
+                    "processed_on": event_day,
                     "site_id": site.site_id,
                     "site": site.site,
                     "domain": site.registered_domain,
@@ -1030,6 +1096,7 @@ def process_sitemap_slice(
                         "site": site.site,
                         "sitemap_url": sitemap_url or site.sitemap,
                         "last_scan_at": now_iso(),
+                        "last_scan_day": event_day,
                         "last_success_at": current_state.get("last_success_at", ""),
                         "crawl_complete": False,
                         "urls_count": 0,
@@ -1045,13 +1112,13 @@ def process_sitemap_slice(
     if queue_rows:
         append_jsonl(page_queue_path(base_dir, run_token), queue_rows)
     if rejection_rows:
-        append_jsonl_gz(rejection_events_path(base_dir, run_token), rejection_rows)
+        append_jsonl_gz(rejection_events_path(base_dir, event_day), rejection_rows)
         write_latest_rejections_csv(base_dir, latest_rejections)
     return len(queue_rows), len(rejection_rows)
 
 
 def process_page_slice(
-    run_token: str,
+    event_day: str,
     queue_slice: list[dict[str, str]],
     site_by_id: dict[str, SiteRecord],
 ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
@@ -1084,6 +1151,7 @@ def process_page_slice(
         page_events.append(
             {
                 "detected_on": run_token,
+                "processed_on": event_day,
                 "site_id": site.site_id,
                 "source_domain": site.registered_domain,
                 "source_url": url,
@@ -1097,6 +1165,7 @@ def process_page_slice(
             link_events.append(
                 {
                     "detected_on": run_token,
+                    "processed_on": event_day,
                     "site_id": site.site_id,
                     "source_domain": site.registered_domain,
                     "source_url": url,
@@ -1114,6 +1183,7 @@ def process_page_slice(
 
 def process() -> int:
     base_dir = repo_root()
+    today = current_day_iso()
     config = load_config(base_dir)
     crawler_config = config.get("crawler", {})
     default_limit = int(crawler_config.get("max_sites_per_run", 0))
@@ -1122,111 +1192,125 @@ def process() -> int:
     max_new_urls_per_site = int(crawler_config.get("max_new_urls_per_site", MAX_NEW_URLS_PER_SITE))
 
     sites = load_sites(base_dir)
-    target_sites = ordered_active_sites(sites, site_limit)
-    if not target_sites:
-        log_info("Aucun site actif a traiter.")
-        return 0
-
+    site_by_id_all = {site.site_id: site for site in sites}
     state = load_json(crawl_state_path(base_dir), {})
-    expected_total = len(target_sites)
-    fresh_state_needed = (
-        not state
-        or bool(state.get("done"))
-        or state_int(state.get("total_sites"), -1) != expected_total
-        or state_int(state.get("site_limit"), -1) != site_limit
-        or state_int(state.get("seed_initial_urls"), -1) != (1 if SEED_INITIAL_URLS else 0)
-    )
-    if fresh_state_needed:
-        state = default_crawl_state(date.today().isoformat(), expected_total, site_limit)
-        save_crawl_state(base_dir, state)
-
-    run_token = str(state["run_token"])
+    run_count_today = current_run_count(state, today)
+    can_dispatch_continuation = run_count_today < MAX_RUNS_PER_DAY
     deadline = time.monotonic() + max(60, RUN_BUDGET_SECONDS)
     sitemap_slice_size = SITEMAP_SLICE_SIZE or max(25, max(1, SITEMAP_WORKERS) * 8)
     page_slice_size = PAGE_SLICE_SIZE or max(25, max(1, PAGE_WORKERS) * 8)
     site_rows_path = catalog_sites_path(base_dir)
-    site_by_id = {site.site_id: site for site in target_sites}
-    queue_file = page_queue_path(base_dir, run_token)
-
-    log_info(
-        f"Crawl run {run_token}: phase={state['phase']} sites={expected_total} "
-        f"limit={site_limit or 'all'} workers={SITEMAP_WORKERS}/{PAGE_WORKERS}"
-    )
-
-    if state["phase"] == "sitemaps":
-        while int(state["site_cursor"]) < expected_total:
-            if should_stop_before_next_slice(deadline):
-                state["needs_continuation"] = True
-                save_crawl_state(base_dir, state)
-                log_warn("Budget runtime atteint pendant la phase sitemaps, arret propre.")
+    while True:
+        if not state or bool(state.get("done")):
+            queue_ids = build_daily_site_queue(base_dir, sites, today, site_limit)
+            if not queue_ids:
+                log_info("Tous les sites actifs ont deja ete scannes aujourd'hui.")
                 return 0
-            start = int(state["site_cursor"])
-            stop = min(expected_total, start + sitemap_slice_size)
-            log_info(f"Sitemaps: traitement {start + 1}-{stop}/{expected_total}")
-            queued_count, rejection_count = process_sitemap_slice(
-                base_dir,
-                run_token,
-                target_sites[start:stop],
-                site_rows_path,
-                max_initial_urls_per_site,
-                max_new_urls_per_site,
-            )
-            state["site_cursor"] = stop
-            state["sitemap_processed"] = stop
-            state["page_queue_count"] = int(state.get("page_queue_count", 0) or 0) + queued_count
-            state["rejections_written"] = int(state.get("rejections_written", 0) or 0) + rejection_count
-            state["needs_continuation"] = False
-            save_crawl_state(base_dir, state)
+            run_token = today
+            state = default_crawl_state(run_token, today, len(queue_ids), site_limit)
+            save_site_queue(site_queue_path(base_dir, run_token), queue_ids, today, site_limit)
+        else:
+            run_token = str(state.get("run_token", today) or today)
+            queue_ids = load_site_queue(site_queue_path(base_dir, run_token))
+            if not queue_ids:
+                raise RuntimeError(f"Missing site queue file for unfinished crawl state: {run_token}")
 
-        state["phase"] = "pages"
+        state["runs_started_today"] = run_count_today
+        state["last_run_day"] = today
+        state["can_dispatch_continuation"] = can_dispatch_continuation
         state["needs_continuation"] = False
         save_crawl_state(base_dir, state)
 
-    queue_rows = load_page_queue(queue_file)
-    state["page_queue_count"] = len(queue_rows)
-    save_crawl_state(base_dir, state)
-    if not queue_rows:
+        target_sites = [site_by_id_all[site_id] for site_id in queue_ids if site_id in site_by_id_all]
+        expected_total = len(target_sites)
+        queue_file = page_queue_path(base_dir, run_token)
+        site_queue_file = site_queue_path(base_dir, run_token)
+        site_by_id = {site.site_id: site for site in target_sites}
+
+        log_info(
+            f"Crawl cycle {run_token}: scan_day={state['scan_day']} phase={state['phase']} "
+            f"sites={expected_total} limit={site_limit or 'all'} workers={SITEMAP_WORKERS}/{PAGE_WORKERS} "
+            f"run={run_count_today}/{MAX_RUNS_PER_DAY}"
+        )
+
+        if state["phase"] == "sitemaps":
+            while int(state["site_cursor"]) < expected_total:
+                if should_stop_before_next_slice(deadline):
+                    state["needs_continuation"] = True
+                    state["can_dispatch_continuation"] = can_dispatch_continuation
+                    save_crawl_state(base_dir, state)
+                    log_warn("Budget runtime atteint pendant la phase sitemaps, arret propre.")
+                    return 0
+                start = int(state["site_cursor"])
+                stop = min(expected_total, start + sitemap_slice_size)
+                log_info(f"Sitemaps: traitement {start + 1}-{stop}/{expected_total}")
+                queued_count, rejection_count = process_sitemap_slice(
+                    base_dir,
+                    run_token,
+                    today,
+                    target_sites[start:stop],
+                    site_rows_path,
+                    max_initial_urls_per_site,
+                    max_new_urls_per_site,
+                )
+                state["site_cursor"] = stop
+                state["sitemap_processed"] = stop
+                state["page_queue_count"] = state_int(state.get("page_queue_count"), 0) + queued_count
+                state["rejections_written"] = state_int(state.get("rejections_written"), 0) + rejection_count
+                save_crawl_state(base_dir, state)
+
+            state["phase"] = "pages"
+            save_crawl_state(base_dir, state)
+
+        queue_rows = load_page_queue(queue_file)
+        state["page_queue_count"] = len(queue_rows)
+        save_crawl_state(base_dir, state)
+        if queue_rows:
+            while int(state["page_cursor"]) < len(queue_rows):
+                if should_stop_before_next_slice(deadline):
+                    state["needs_continuation"] = True
+                    state["can_dispatch_continuation"] = can_dispatch_continuation
+                    save_crawl_state(base_dir, state)
+                    log_warn("Budget runtime atteint pendant la phase pages, arret propre.")
+                    return 0
+                start = int(state["page_cursor"])
+                stop = min(len(queue_rows), start + page_slice_size)
+                log_info(f"Pages: traitement {start + 1}-{stop}/{len(queue_rows)}")
+                page_events, link_events = process_page_slice(today, queue_rows[start:stop], site_by_id)
+                if page_events:
+                    append_jsonl_gz(page_events_path(base_dir, today), page_events)
+                if link_events:
+                    append_jsonl_gz(link_events_path(base_dir, today), link_events)
+                state["page_cursor"] = stop
+                state["pages_processed"] = stop
+                save_crawl_state(base_dir, state)
+
         state["phase"] = "done"
         state["done"] = True
         state["needs_continuation"] = False
+        state["can_dispatch_continuation"] = can_dispatch_continuation
         state["finished_at"] = now_iso()
         save_crawl_state(base_dir, state)
-        log_info("Aucune URL a enrichir pour ce run.")
+        try:
+            queue_file.unlink(missing_ok=True)
+        except OSError:
+            pass
+        try:
+            site_queue_file.unlink(missing_ok=True)
+        except OSError:
+            pass
+        log_info(
+            f"Crawl cycle {run_token} termine: sitemaps={state['sitemap_processed']}, "
+            f"pages={state['pages_processed']}, queue={state['page_queue_count']}"
+        )
+
+        if str(state.get("scan_day", "")) != today and not should_stop_before_next_slice(deadline):
+            log_info("Cycle en retard termine, reprise immediate du quota du jour.")
+            state = {}
+            continue
+        if state["page_queue_count"] == 0:
+            log_info("Aucune URL a enrichir pour ce cycle.")
         return 0
-
-    while int(state["page_cursor"]) < len(queue_rows):
-        if should_stop_before_next_slice(deadline):
-            state["needs_continuation"] = True
-            save_crawl_state(base_dir, state)
-            log_warn("Budget runtime atteint pendant la phase pages, arret propre.")
-            return 0
-        start = int(state["page_cursor"])
-        stop = min(len(queue_rows), start + page_slice_size)
-        log_info(f"Pages: traitement {start + 1}-{stop}/{len(queue_rows)}")
-        page_events, link_events = process_page_slice(run_token, queue_rows[start:stop], site_by_id)
-        if page_events:
-            append_jsonl_gz(page_events_path(base_dir, run_token), page_events)
-        if link_events:
-            append_jsonl_gz(link_events_path(base_dir, run_token), link_events)
-        state["page_cursor"] = stop
-        state["pages_processed"] = stop
-        state["needs_continuation"] = False
-        save_crawl_state(base_dir, state)
-
-    state["phase"] = "done"
-    state["done"] = True
-    state["needs_continuation"] = False
-    state["finished_at"] = now_iso()
-    save_crawl_state(base_dir, state)
-    try:
-        queue_file.unlink(missing_ok=True)
-    except OSError:
-        pass
-    log_info(
-        f"Crawl run {run_token} termine: sitemaps={state['sitemap_processed']}, "
-        f"pages={state['pages_processed']}, queue={state['page_queue_count']}"
-    )
-    return 0
 
 
 if __name__ == "__main__":
