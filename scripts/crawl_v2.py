@@ -27,7 +27,7 @@ PAGE_TIMEOUT = int(os.getenv("PAGE_TIMEOUT", "20"))
 SITEMAP_WORKERS = int(os.getenv("SITEMAP_WORKERS", "12"))
 PAGE_WORKERS = int(os.getenv("PAGE_WORKERS", "16"))
 PROGRESS_EVERY = int(os.getenv("PROGRESS_EVERY", "25"))
-MAX_SITES_OVERRIDE = int(os.getenv("MAX_SITES_OVERRIDE", "0"))
+MAX_SITES_OVERRIDE_RAW = os.getenv("MAX_SITES_OVERRIDE")
 MAX_INITIAL_URLS_PER_SITE = int(os.getenv("MAX_INITIAL_URLS_PER_SITE", "3"))
 MAX_NEW_URLS_PER_SITE = int(os.getenv("MAX_NEW_URLS_PER_SITE", "100"))
 MAX_SITEMAP_DOCUMENTS = int(os.getenv("MAX_SITEMAP_DOCUMENTS", "120"))
@@ -1150,7 +1150,7 @@ def process_page_slice(
         outgoing_links = extract_main_content_links(html, url, site.registered_domain)
         page_events.append(
             {
-                "detected_on": run_token,
+                "detected_on": event_day,
                 "processed_on": event_day,
                 "site_id": site.site_id,
                 "source_domain": site.registered_domain,
@@ -1164,7 +1164,7 @@ def process_page_slice(
         for link in outgoing_links:
             link_events.append(
                 {
-                    "detected_on": run_token,
+                    "detected_on": event_day,
                     "processed_on": event_day,
                     "site_id": site.site_id,
                     "source_domain": site.registered_domain,
@@ -1187,7 +1187,10 @@ def process() -> int:
     config = load_config(base_dir)
     crawler_config = config.get("crawler", {})
     default_limit = int(crawler_config.get("max_sites_per_run", 0))
-    site_limit = MAX_SITES_OVERRIDE or default_limit
+    if MAX_SITES_OVERRIDE_RAW is None or not MAX_SITES_OVERRIDE_RAW.strip():
+        site_limit = default_limit
+    else:
+        site_limit = int(MAX_SITES_OVERRIDE_RAW.strip())
     max_initial_urls_per_site = int(crawler_config.get("max_initial_urls_per_site", MAX_INITIAL_URLS_PER_SITE))
     max_new_urls_per_site = int(crawler_config.get("max_new_urls_per_site", MAX_NEW_URLS_PER_SITE))
 
