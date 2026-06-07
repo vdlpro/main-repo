@@ -32,13 +32,13 @@ MAX_INITIAL_URLS_PER_SITE = int(os.getenv("MAX_INITIAL_URLS_PER_SITE", "3"))
 MAX_NEW_URLS_PER_SITE = int(os.getenv("MAX_NEW_URLS_PER_SITE", "100"))
 MAX_SITEMAP_DOCUMENTS = int(os.getenv("MAX_SITEMAP_DOCUMENTS", "120"))
 SEED_INITIAL_URLS = (os.getenv("SEED_INITIAL_URLS", "0") or "").strip() == "1"
+RUN_BUDGET_SECONDS = int(os.getenv("RUN_BUDGET_SECONDS", "18000"))
+RUN_STOP_BUFFER_SECONDS = int(os.getenv("RUN_STOP_BUFFER_SECONDS", "300"))
+SITEMAP_SLICE_SIZE = int(os.getenv("SITEMAP_SLICE_SIZE", "0"))
+PAGE_SLICE_SIZE = int(os.getenv("PAGE_SLICE_SIZE", "0"))
 TRACKED_LINK_CONTAINERS = "p a[href], li a[href], ol a[href]"
 IGNORED_SCHEMES = {"mailto", "tel", "javascript", "data"}
-IGNORED_TARGET_DOMAINS = {
-    "mag-du-web.fr",
-    "t.co",
-    "x.com",
-}
+IGNORED_TARGET_DOMAINS = {"mag-du-web.fr", "t.co", "x.com"}
 IGNORED_TARGET_DOMAIN_LABELS = {
     "amazon",
     "example",
@@ -140,6 +140,30 @@ class OutgoingLink:
     is_follow: bool
 
 
+SITE_HEADERS = [
+    "site_id",
+    "site",
+    "name",
+    "registered_domain",
+    "language",
+    "source_record_id",
+    "sitemap",
+    "status",
+    "priority",
+    "cadence_days",
+    "theme_raw",
+    "theme_primary",
+    "price",
+    "visits",
+    "unique_visitors",
+    "majestic_trust_flow",
+    "majestic_ref_domains",
+    "semrush_traffic",
+    "moz_domain_authority",
+    "notes",
+]
+
+
 def log_info(message: str) -> None:
     print(f"[INFO] {message}", flush=True)
 
@@ -165,13 +189,29 @@ def load_json(path: Path, default):
         return default
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except (OSError, json.JSONDecodeError):
+        return default
+
+
+def state_int(value: object, default: int = 0) -> int:
+    if value is None or value == "":
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
         return default
 
 
 def write_json(path: Path, payload: object) -> None:
     ensure_dir(path.parent)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def append_jsonl(path: Path, rows: Iterable[dict[str, object]]) -> None:
+    ensure_dir(path.parent)
+    with path.open("a", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
 def append_jsonl_gz(path: Path, rows: Iterable[dict[str, object]]) -> None:
@@ -221,8 +261,7 @@ def should_ignore_target_domain(target_domain: str) -> bool:
         return True
     if normalized in IGNORED_TARGET_DOMAINS:
         return True
-    label = normalized.split(".", 1)[0]
-    return label in IGNORED_TARGET_DOMAIN_LABELS
+    return normalized.split(".", 1)[0] in IGNORED_TARGET_DOMAIN_LABELS
 
 
 def session_with_headers() -> requests.Session:
@@ -296,38 +335,6 @@ def local_name(tag: str) -> str:
     return tag.split("}", 1)[1] if "}" in tag else tag
 
 
-def looks_like_xml_sitemap(content: bytes, url: str) -> bool:
-    payload = maybe_decompress(content, url)
-    try:
-        root = ET.fromstring(payload)
-    except ET.ParseError:
-        return False
-    return local_name(root.tag) in {"urlset", "sitemapindex"}
-
-
-def fetch_soft(
-    session: requests.Session,
-    url: str,
-    timeout: int,
-    deadline: float | None = None,
-) -> tuple[requests.Response | None, str]:
-    try:
-        effective_timeout = compute_remaining_timeout(timeout, deadline)
-        response = session.get(
-            url,
-            timeout=(max(1, min(SITEMAP_CONNECT_TIMEOUT, effective_timeout)), effective_timeout),
-            allow_redirects=True,
-        )
-        if response.status_code >= 400:
-            response.close()
-            return None, f"http_{response.status_code}"
-        return response, "ok"
-    except requests.Timeout:
-        return None, "timeout"
-    except requests.RequestException as exc:
-        return None, exc.__class__.__name__.lower()
-
-
 def extract_from_robots(robots_text: str) -> list[str]:
     matches: list[str] = []
     for line in robots_text.splitlines():
@@ -375,6 +382,38 @@ def base_variants(site_url: str) -> list[str]:
     return variants
 
 
+def looks_like_xml_sitemap(content: bytes, url: str) -> bool:
+    payload = maybe_decompress(content, url)
+    try:
+        root = ET.fromstring(payload)
+    except ET.ParseError:
+        return False
+    return local_name(root.tag) in {"urlset", "sitemapindex"}
+
+
+def fetch_soft(
+    session: requests.Session,
+    url: str,
+    timeout: int,
+    deadline: float | None = None,
+) -> tuple[requests.Response | None, str]:
+    try:
+        effective_timeout = compute_remaining_timeout(timeout, deadline)
+        response = session.get(
+            url,
+            timeout=(max(1, min(SITEMAP_CONNECT_TIMEOUT, effective_timeout)), effective_timeout),
+            allow_redirects=True,
+        )
+        if response.status_code >= 400:
+            response.close()
+            return None, f"http_{response.status_code}"
+        return response, "ok"
+    except requests.Timeout:
+        return None, "timeout"
+    except requests.RequestException as exc:
+        return None, exc.__class__.__name__.lower()
+
+
 def site_state_dir(base_dir: Path) -> Path:
     return base_dir / "data" / "state" / "sites"
 
@@ -389,6 +428,10 @@ def ever_seen_dir(base_dir: Path) -> Path:
 
 def rejections_dir(base_dir: Path) -> Path:
     return base_dir / "data" / "state" / "rejections"
+
+
+def runtime_state_dir(base_dir: Path) -> Path:
+    return base_dir / "data" / "state" / "runtime"
 
 
 def site_state_path(base_dir: Path, site_id: str) -> Path:
@@ -415,6 +458,14 @@ def rejection_events_path(base_dir: Path, day: str) -> Path:
     return rejections_dir(base_dir) / f"{day}.jsonl.gz"
 
 
+def crawl_state_path(base_dir: Path) -> Path:
+    return runtime_state_dir(base_dir) / "crawl_state.json"
+
+
+def page_queue_path(base_dir: Path, run_token: str) -> Path:
+    return runtime_state_dir(base_dir) / f"page_queue_{run_token}.jsonl"
+
+
 def load_url_set(path: Path) -> set[str]:
     payload = load_json(path, {})
     return set(payload.get("urls", []))
@@ -435,37 +486,13 @@ def catalog_sites_path(base_dir: Path) -> Path:
     return base_dir / "catalog" / "sites.csv"
 
 
-SITE_HEADERS = [
-    "site_id",
-    "site",
-    "name",
-    "registered_domain",
-    "language",
-    "source_record_id",
-    "sitemap",
-    "status",
-    "priority",
-    "cadence_days",
-    "theme_raw",
-    "theme_primary",
-    "price",
-    "visits",
-    "unique_visitors",
-    "majestic_trust_flow",
-    "majestic_ref_domains",
-    "semrush_traffic",
-    "moz_domain_authority",
-    "notes",
-]
-
-
 def load_sites(base_dir: Path) -> list[SiteRecord]:
     path = catalog_sites_path(base_dir)
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
         if (reader.fieldnames or []) != SITE_HEADERS:
             raise RuntimeError("Invalid headers in catalog/sites.csv")
-        rows = []
+        rows: list[SiteRecord] = []
         for row in reader:
             rows.append(
                 SiteRecord(
@@ -489,7 +516,7 @@ def load_sites(base_dir: Path) -> list[SiteRecord]:
                     notes=row["notes"],
                 )
             )
-        return rows
+    return rows
 
 
 def load_site_rows(path: Path) -> list[dict[str, str]]:
@@ -511,46 +538,13 @@ def load_config(base_dir: Path) -> dict[str, object]:
         {
             "default_cadence_days": 7,
             "default_priority": "normal",
-            "crawler": {"max_workers": 12, "timeout_seconds": 25, "max_sites_per_run": 500},
+            "crawler": {"max_workers": 12, "timeout_seconds": 25, "max_sites_per_run": 0},
         },
     )
 
 
 def site_priority_rank(priority: str) -> int:
     return {"high": 0, "normal": 1, "low": 2}.get((priority or "").strip().lower(), 1)
-
-
-def select_due_sites(base_dir: Path, sites: list[SiteRecord], max_sites_per_run: int) -> list[SiteRecord]:
-    scored: list[tuple[tuple[int, int, int, int, str], SiteRecord]] = []
-    for site in sites:
-        if site.status != "active":
-            continue
-        state = load_json(site_state_path(base_dir, site.site_id), {})
-        last_scan = (state.get("last_scan_at") or "").strip()
-        last_ok = (state.get("last_success_at") or "").strip()
-        sitemap_value = (site.sitemap or state.get("sitemap_url") or "").strip()
-        never_scanned = 0 if not last_scan else 1
-        overdue_days = 999999
-        if last_ok:
-            try:
-                last_ok_date = datetime.fromisoformat(last_ok.replace("Z", "+00:00")).date()
-                days_since_ok = (date.today() - last_ok_date).days
-                overdue_days = days_since_ok - max(1, site.cadence_days)
-            except ValueError:
-                overdue_days = 999999
-        if last_ok and overdue_days < 0:
-            continue
-        score = (
-            never_scanned,
-            0 if not sitemap_value else 1,
-            site_priority_rank(site.priority),
-            -overdue_days,
-            site.registered_domain,
-        )
-        scored.append((score, site))
-    scored.sort(key=lambda item: item[0])
-    limit = MAX_SITES_OVERRIDE or max_sites_per_run
-    return [site for _score, site in scored[:limit]]
 
 
 def parse_sitemap(
@@ -703,7 +697,7 @@ def discover_sitemap(
                 return "", "site_budget_exceeded", checked
             candidate = f"{base}{path}"
             checked.append(candidate)
-            response, status = fetch_soft(session, candidate, effective_timeout, deadline=deadline)
+            response, _status = fetch_soft(session, candidate, effective_timeout, deadline=deadline)
             if response is None:
                 continue
             final_url = response.url
@@ -715,7 +709,7 @@ def discover_sitemap(
     for base in variants:
         if deadline is not None and time.monotonic() >= deadline:
             return "", "site_budget_exceeded", checked
-        response, status = fetch_soft(session, base, effective_timeout, deadline=deadline)
+        response, _status = fetch_soft(session, base, effective_timeout, deadline=deadline)
         if response is None:
             continue
         try:
@@ -728,7 +722,7 @@ def discover_sitemap(
             if deadline is not None and time.monotonic() >= deadline:
                 return "", "site_budget_exceeded", checked
             checked.append(candidate)
-            candidate_response, candidate_status = fetch_soft(
+            candidate_response, _candidate_status = fetch_soft(
                 session,
                 candidate,
                 effective_timeout,
@@ -743,14 +737,6 @@ def discover_sitemap(
                 return final_url, "homepage_link", checked
 
     return "", "no_sitemap_found", checked
-
-
-def focus_title(title: str) -> str:
-    cleaned = re.sub(r"\s+", " ", (title or "")).strip()
-    if not cleaned:
-        return ""
-    parts = [part.strip() for part in re.split(r"\s(?:\||-|–|:|»)\s", cleaned) if part.strip()]
-    return parts[0] if parts else cleaned
 
 
 def normalized_anchor_text(anchor) -> str:
@@ -888,57 +874,105 @@ def crawler_decision_for_reason(reason: str) -> str:
     return "retry_later"
 
 
-def process() -> int:
-    base_dir = repo_root()
-    config = load_config(base_dir)
-    crawler_config = config.get("crawler", {})
-    max_sites_per_run = int(crawler_config.get("max_sites_per_run", 500))
-    max_initial_urls_per_site = int(crawler_config.get("max_initial_urls_per_site", MAX_INITIAL_URLS_PER_SITE))
-    max_new_urls_per_site = int(crawler_config.get("max_new_urls_per_site", MAX_NEW_URLS_PER_SITE))
-    sites = load_sites(base_dir)
-    due_sites = select_due_sites(base_dir, sites, max_sites_per_run)
-    if not due_sites:
-        log_info("Aucun site dû pour le crawl.")
-        return 0
+def ordered_active_sites(sites: list[SiteRecord], limit: int) -> list[SiteRecord]:
+    active = [site for site in sites if site.status == "active"]
+    active.sort(key=lambda site: (site_priority_rank(site.priority), site.registered_domain, site.site_id))
+    return active[:limit] if limit > 0 else active
 
-    today = date.today().isoformat()
-    page_events: list[dict[str, object]] = []
-    link_events: list[dict[str, object]] = []
-    rejection_events: list[dict[str, object]] = []
-    pending_urls: list[tuple[SiteRecord, str]] = []
 
-    log_info(f"Crawl sitemap V2: {len(due_sites)} site(s), {max(1, SITEMAP_WORKERS)} worker(s)")
-    completed = 0
-    site_rows_path = catalog_sites_path(base_dir)
+def default_crawl_state(run_token: str, total_sites: int, site_limit: int) -> dict[str, object]:
+    return {
+        "version": 1,
+        "run_token": run_token,
+        "phase": "sitemaps",
+        "site_cursor": 0,
+        "page_cursor": 0,
+        "total_sites": total_sites,
+        "site_limit": site_limit,
+        "seed_initial_urls": 1 if SEED_INITIAL_URLS else 0,
+        "page_queue_count": 0,
+        "sitemap_processed": 0,
+        "pages_processed": 0,
+        "rejections_written": 0,
+        "needs_continuation": False,
+        "done": False,
+        "started_at": now_iso(),
+        "updated_at": now_iso(),
+    }
 
-    def scan_site(site: SiteRecord) -> tuple[SiteRecord, str, set[str], bool, str, list[str]]:
-        session = session_with_headers()
-        try:
-            sitemap_url, discovery_stage, checked = discover_sitemap(session, site)
-            if not sitemap_url:
-                return site, "", set(), False, discovery_stage, checked
-            current_urls, crawl_complete, reason = parse_sitemap(session, sitemap_url)
-            return site, sitemap_url, current_urls, crawl_complete, reason, checked
-        finally:
-            session.close()
+
+def save_crawl_state(base_dir: Path, state: dict[str, object]) -> None:
+    state["updated_at"] = now_iso()
+    write_json(crawl_state_path(base_dir), state)
+
+
+def should_stop_before_next_slice(deadline: float, buffer_seconds: int = RUN_STOP_BUFFER_SECONDS) -> bool:
+    return time.monotonic() >= max(0.0, deadline - max(0, buffer_seconds))
+
+
+def load_page_queue(path: Path) -> list[dict[str, str]]:
+    if not path.exists():
+        return []
+    rows: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            site_id = str(row.get("site_id", ""))
+            url = str(row.get("url", ""))
+            key = (site_id, url)
+            if not site_id or not url or key in seen:
+                continue
+            seen.add(key)
+            rows.append({"site_id": site_id, "url": url})
+    return rows
+
+
+def scan_site(site: SiteRecord) -> tuple[SiteRecord, str, set[str], bool, str, list[str]]:
+    session = session_with_headers()
+    try:
+        sitemap_url, discovery_stage, checked = discover_sitemap(session, site)
+        if not sitemap_url:
+            return site, "", set(), False, discovery_stage, checked
+        current_urls, crawl_complete, reason = parse_sitemap(session, sitemap_url)
+        return site, sitemap_url, current_urls, crawl_complete, reason, checked
+    finally:
+        session.close()
+
+
+def process_sitemap_slice(
+    base_dir: Path,
+    run_token: str,
+    slice_sites: list[SiteRecord],
+    site_rows_path: Path,
+    max_initial_urls_per_site: int,
+    max_new_urls_per_site: int,
+) -> tuple[int, int]:
+    queue_rows: list[dict[str, object]] = []
+    rejection_rows: list[dict[str, object]] = []
+    latest_rejections = load_recent_rejections(base_dir)
 
     with ThreadPoolExecutor(max_workers=max(1, SITEMAP_WORKERS)) as executor:
-        future_to_site = {executor.submit(scan_site, site): site for site in due_sites}
+        future_to_site = {executor.submit(scan_site, site): site for site in slice_sites}
+        completed = 0
         for future in as_completed(future_to_site):
             site = future_to_site[future]
-            completed += 1
             try:
                 site, sitemap_url, current_urls, crawl_complete, reason, checked = future.result()
             except Exception as exc:
-                reason = exc.__class__.__name__.lower()
                 sitemap_url = site.sitemap
                 current_urls = set()
                 crawl_complete = False
+                reason = exc.__class__.__name__.lower()
                 checked = [site.site]
 
             state_path = site_state_path(base_dir, site.site_id)
             current_state = load_json(state_path, {})
             consecutive_failures = int(current_state.get("consecutive_failures", 0) or 0)
+
             if crawl_complete and sitemap_url and current_urls:
                 if sitemap_url != site.sitemap:
                     update_site_row(site_rows_path, site.site_id, {"sitemap": sitemap_url})
@@ -953,8 +987,8 @@ def process() -> int:
                     candidate_urls = sorted(url for url in current_urls - ever_seen_urls)
                 if len(candidate_urls) > max_new_urls_per_site:
                     candidate_urls = candidate_urls[:max_new_urls_per_site]
-                for url in candidate_urls:
-                    pending_urls.append((site, url))
+                queue_rows.extend({"site_id": site.site_id, "url": url} for url in candidate_urls)
+
                 updated_ever_seen = set(ever_seen_urls)
                 updated_ever_seen.update(current_urls)
                 save_url_set(ever_seen_path(base_dir, site.site_id), updated_ever_seen, sitemap_url)
@@ -976,7 +1010,7 @@ def process() -> int:
             else:
                 consecutive_failures += 1
                 rejection = {
-                    "detected_on": now_iso(),
+                    "detected_on": run_token,
                     "site_id": site.site_id,
                     "site": site.site,
                     "domain": site.registered_domain,
@@ -986,7 +1020,8 @@ def process() -> int:
                     "checked": "; ".join(checked[:30]),
                     "decision": crawler_decision_for_reason(reason),
                 }
-                rejection_events.append(rejection)
+                rejection_rows.append(rejection)
+                latest_rejections.append(rejection)
                 write_json(
                     state_path,
                     {
@@ -1002,71 +1037,195 @@ def process() -> int:
                         "consecutive_failures": consecutive_failures,
                     },
                 )
-            if completed % PROGRESS_EVERY == 0 or completed == len(due_sites):
-                log_info(f"Crawl sitemap V2: {completed}/{len(due_sites)}")
 
-    if rejection_events:
-        append_jsonl_gz(rejection_events_path(base_dir, today), rejection_events)
-        write_latest_rejections_csv(base_dir, rejection_events)
+            completed += 1
+            if completed % PROGRESS_EVERY == 0 or completed == len(slice_sites):
+                log_info(f"Sitemaps tranche: {completed}/{len(slice_sites)}")
 
-    log_info(f"{len(pending_urls)} URL(s) à enrichir")
-    if pending_urls:
-        title_results: dict[str, tuple[str, str]] = {}
-        with ThreadPoolExecutor(max_workers=max(1, PAGE_WORKERS)) as executor:
-            future_to_url = {executor.submit(fetch_page, url): url for _site, url in pending_urls}
-            completed_urls = 0
-            for future in as_completed(future_to_url):
-                url = future_to_url[future]
-                try:
-                    title_results[url] = future.result()
-                except Exception:
-                    title_results[url] = ("", "")
-                completed_urls += 1
-                if completed_urls % PROGRESS_EVERY == 0 or completed_urls == len(pending_urls):
-                    log_info(f"Pages: {completed_urls}/{len(pending_urls)}")
+    if queue_rows:
+        append_jsonl(page_queue_path(base_dir, run_token), queue_rows)
+    if rejection_rows:
+        append_jsonl_gz(rejection_events_path(base_dir, run_token), rejection_rows)
+        write_latest_rejections_csv(base_dir, latest_rejections)
+    return len(queue_rows), len(rejection_rows)
 
-        for site, url in pending_urls:
-            html, title = title_results.get(url, ("", ""))
-            if not html:
-                continue
-            outgoing_links = extract_main_content_links(html, url, site.registered_domain)
-            page_events.append(
+
+def process_page_slice(
+    run_token: str,
+    queue_slice: list[dict[str, str]],
+    site_by_id: dict[str, SiteRecord],
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    title_results: dict[str, tuple[str, str]] = {}
+    with ThreadPoolExecutor(max_workers=max(1, PAGE_WORKERS)) as executor:
+        future_to_url = {executor.submit(fetch_page, row["url"]): row["url"] for row in queue_slice}
+        completed = 0
+        total = len(future_to_url)
+        for future in as_completed(future_to_url):
+            url = future_to_url[future]
+            try:
+                title_results[url] = future.result()
+            except Exception:
+                title_results[url] = ("", "")
+            completed += 1
+            if completed % PROGRESS_EVERY == 0 or completed == total:
+                log_info(f"Pages tranche: {completed}/{total}")
+
+    page_events: list[dict[str, object]] = []
+    link_events: list[dict[str, object]] = []
+    for row in queue_slice:
+        site = site_by_id.get(row["site_id"])
+        if site is None:
+            continue
+        url = row["url"]
+        html, title = title_results.get(url, ("", ""))
+        if not html:
+            continue
+        outgoing_links = extract_main_content_links(html, url, site.registered_domain)
+        page_events.append(
+            {
+                "detected_on": run_token,
+                "site_id": site.site_id,
+                "source_domain": site.registered_domain,
+                "source_url": url,
+                "title": title,
+                "keyword": "",
+                "raw_outgoing_links_count": len(outgoing_links),
+                "unique_target_domains_count": len({link.target_domain for link in outgoing_links}),
+            }
+        )
+        for link in outgoing_links:
+            link_events.append(
                 {
-                    "detected_on": today,
+                    "detected_on": run_token,
                     "site_id": site.site_id,
                     "source_domain": site.registered_domain,
                     "source_url": url,
                     "title": title,
-                    "keyword": focus_title(title),
-                    "raw_outgoing_links_count": len(outgoing_links),
-                    "unique_target_domains_count": len({link.target_domain for link in outgoing_links}),
+                    "keyword": "",
+                    "target_domain": link.target_domain,
+                    "target_url": link.target_url,
+                    "anchor_text": link.anchor_text,
+                    "rel_flags": link.rel_flags,
+                    "is_follow": link.is_follow,
                 }
             )
-            for link in outgoing_links:
-                link_events.append(
-                    {
-                        "detected_on": today,
-                        "site_id": site.site_id,
-                        "source_domain": site.registered_domain,
-                        "source_url": url,
-                        "title": title,
-                        "keyword": focus_title(title),
-                        "target_domain": link.target_domain,
-                        "target_url": link.target_url,
-                        "anchor_text": link.anchor_text,
-                        "rel_flags": link.rel_flags,
-                        "is_follow": link.is_follow,
-                    }
-                )
+    return page_events, link_events
 
-    if page_events:
-        append_jsonl_gz(page_events_path(base_dir, today), page_events)
-    if link_events:
-        append_jsonl_gz(link_events_path(base_dir, today), link_events)
 
-    log_info(f"Rejets sitemap journalisés: {len(rejection_events)}")
-    log_info(f"Page events écrits: {len(page_events)}")
-    log_info(f"Link events écrits: {len(link_events)}")
+def process() -> int:
+    base_dir = repo_root()
+    config = load_config(base_dir)
+    crawler_config = config.get("crawler", {})
+    default_limit = int(crawler_config.get("max_sites_per_run", 0))
+    site_limit = MAX_SITES_OVERRIDE or default_limit
+    max_initial_urls_per_site = int(crawler_config.get("max_initial_urls_per_site", MAX_INITIAL_URLS_PER_SITE))
+    max_new_urls_per_site = int(crawler_config.get("max_new_urls_per_site", MAX_NEW_URLS_PER_SITE))
+
+    sites = load_sites(base_dir)
+    target_sites = ordered_active_sites(sites, site_limit)
+    if not target_sites:
+        log_info("Aucun site actif a traiter.")
+        return 0
+
+    state = load_json(crawl_state_path(base_dir), {})
+    expected_total = len(target_sites)
+    fresh_state_needed = (
+        not state
+        or bool(state.get("done"))
+        or state_int(state.get("total_sites"), -1) != expected_total
+        or state_int(state.get("site_limit"), -1) != site_limit
+        or state_int(state.get("seed_initial_urls"), -1) != (1 if SEED_INITIAL_URLS else 0)
+    )
+    if fresh_state_needed:
+        state = default_crawl_state(date.today().isoformat(), expected_total, site_limit)
+        save_crawl_state(base_dir, state)
+
+    run_token = str(state["run_token"])
+    deadline = time.monotonic() + max(60, RUN_BUDGET_SECONDS)
+    sitemap_slice_size = SITEMAP_SLICE_SIZE or max(25, max(1, SITEMAP_WORKERS) * 8)
+    page_slice_size = PAGE_SLICE_SIZE or max(25, max(1, PAGE_WORKERS) * 8)
+    site_rows_path = catalog_sites_path(base_dir)
+    site_by_id = {site.site_id: site for site in target_sites}
+    queue_file = page_queue_path(base_dir, run_token)
+
+    log_info(
+        f"Crawl run {run_token}: phase={state['phase']} sites={expected_total} "
+        f"limit={site_limit or 'all'} workers={SITEMAP_WORKERS}/{PAGE_WORKERS}"
+    )
+
+    if state["phase"] == "sitemaps":
+        while int(state["site_cursor"]) < expected_total:
+            if should_stop_before_next_slice(deadline):
+                state["needs_continuation"] = True
+                save_crawl_state(base_dir, state)
+                log_warn("Budget runtime atteint pendant la phase sitemaps, arret propre.")
+                return 0
+            start = int(state["site_cursor"])
+            stop = min(expected_total, start + sitemap_slice_size)
+            log_info(f"Sitemaps: traitement {start + 1}-{stop}/{expected_total}")
+            queued_count, rejection_count = process_sitemap_slice(
+                base_dir,
+                run_token,
+                target_sites[start:stop],
+                site_rows_path,
+                max_initial_urls_per_site,
+                max_new_urls_per_site,
+            )
+            state["site_cursor"] = stop
+            state["sitemap_processed"] = stop
+            state["page_queue_count"] = int(state.get("page_queue_count", 0) or 0) + queued_count
+            state["rejections_written"] = int(state.get("rejections_written", 0) or 0) + rejection_count
+            state["needs_continuation"] = False
+            save_crawl_state(base_dir, state)
+
+        state["phase"] = "pages"
+        state["needs_continuation"] = False
+        save_crawl_state(base_dir, state)
+
+    queue_rows = load_page_queue(queue_file)
+    state["page_queue_count"] = len(queue_rows)
+    save_crawl_state(base_dir, state)
+    if not queue_rows:
+        state["phase"] = "done"
+        state["done"] = True
+        state["needs_continuation"] = False
+        state["finished_at"] = now_iso()
+        save_crawl_state(base_dir, state)
+        log_info("Aucune URL a enrichir pour ce run.")
+        return 0
+
+    while int(state["page_cursor"]) < len(queue_rows):
+        if should_stop_before_next_slice(deadline):
+            state["needs_continuation"] = True
+            save_crawl_state(base_dir, state)
+            log_warn("Budget runtime atteint pendant la phase pages, arret propre.")
+            return 0
+        start = int(state["page_cursor"])
+        stop = min(len(queue_rows), start + page_slice_size)
+        log_info(f"Pages: traitement {start + 1}-{stop}/{len(queue_rows)}")
+        page_events, link_events = process_page_slice(run_token, queue_rows[start:stop], site_by_id)
+        if page_events:
+            append_jsonl_gz(page_events_path(base_dir, run_token), page_events)
+        if link_events:
+            append_jsonl_gz(link_events_path(base_dir, run_token), link_events)
+        state["page_cursor"] = stop
+        state["pages_processed"] = stop
+        state["needs_continuation"] = False
+        save_crawl_state(base_dir, state)
+
+    state["phase"] = "done"
+    state["done"] = True
+    state["needs_continuation"] = False
+    state["finished_at"] = now_iso()
+    save_crawl_state(base_dir, state)
+    try:
+        queue_file.unlink(missing_ok=True)
+    except OSError:
+        pass
+    log_info(
+        f"Crawl run {run_token} termine: sitemaps={state['sitemap_processed']}, "
+        f"pages={state['pages_processed']}, queue={state['page_queue_count']}"
+    )
     return 0
 
 

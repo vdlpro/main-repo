@@ -130,6 +130,7 @@ def finalize() -> int:
     reset_dir(state_dir / "ever_seen")
     reset_dir(state_dir / "sites")
     reset_dir(state_dir / "rejections")
+    reset_dir(state_dir / "runtime")
     reset_dir(events_dir / "pages")
     reset_dir(events_dir / "links")
     reset_dir(public_data_dir / "all")
